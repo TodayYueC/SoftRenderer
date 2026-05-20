@@ -7,6 +7,41 @@
 #include "geometry.h"
 #include "renderer.h"
 
+
+class PhongShader : public IShader {
+public:
+    const Model *model;
+    Vec3f l;
+    Vec3f tri[3];
+
+    PhongShader(const Model *model, Vec3f light) : model(model) {
+        l = ((modelview * Vec4f(light,0)).toVec3()).normalize();
+    }
+
+    virtual Vec4f Vertex(const int face,const int vert) {
+        Vec4f v = {model->vert(model->face(face)[vert]),1};
+        tri[vert] =  (modelview * v).toVec3();
+        return perspective * modelview *v;
+    }
+
+    virtual std::pair<bool,TGAColor> fragment(const Vec3f bar) const {
+        TGAColor color = {255,255,255,255};
+        Vec3f n = (tri[1]-tri[0]) ^ (tri[2]-tri[0]);
+        n = n.normalize();//法线
+        Vec3f r = (n * (n * l)*2 - l).normalize(); //反射光线
+        double amb = 0.3; //环境光
+        double diff = std::max(0.f,n*l);//漫反射
+        double spec = std::pow(std::max(0.f,r.z),40);//高光
+
+        for (int i= 0; i < 3; i++) {
+            color[i] *= std::min(1., amb + .4 * diff + .9 * spec);
+        }
+        return {false, color};
+    }
+
+
+};
+
 class RandomShader : public IShader {
 public:
     const Model *model;
@@ -33,6 +68,7 @@ public:
         int width = 800;
         int height = 800;
 
+        Vec3f light(1,1,1);
         Vec3f eye(-1,0,2);
         Vec3f center(0,0,0);
         Vec3f up(0,1,0);
@@ -53,9 +89,8 @@ public:
         Perspective((eye - center).norm());
         Viewport(width/16,height/16,width * 7/8,height * 7/8);
 
-        RandomShader shader(&model);
+        PhongShader shader(&model,light);
         for (int i = 0; i < model.nfaces(); i++) {
-            shader.color = RandomColor();
             Vec4f face[3] = {shader.Vertex(i,0),shader.Vertex(i,1),shader.Vertex(i,2)};
             Rasterize(img, face, shader);
         }
