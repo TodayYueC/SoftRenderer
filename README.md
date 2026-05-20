@@ -13,7 +13,7 @@ A simple software renderer built while following the [tinyrenderer](https://gith
 
 ## Build
 
-Requires a C++17 compiler and CMake.
+Requires a C++20 compiler and CMake.
 
 ```bash
 mkdir build && cd build
