@@ -10,6 +10,8 @@ add_executable(SoftRenderer main.cpp
         tgaimage.cpp
         geometry.h
         model.h
-        model.cpp)
+        model.cpp
+        renderer.h
+        renderer.cpp)
 
 target_link_libraries(SoftRenderer PRIVATE OpenMP::OpenMP_CXX)
