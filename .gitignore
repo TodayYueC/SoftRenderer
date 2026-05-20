@@ -1,0 +1,33 @@
+# Build
+cmake-build-debug/
+*.exe
+*.obj
+*.o
+*.lib
+*.dll
+*.pdb
+*.ilk
+*.exp
+
+# IDE
+.idea/
+.vs/
+*.user
+*.suo
+*.sln
+*.vcxproj*
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Output images
+*.tga
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Model files
+obj/
