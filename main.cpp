@@ -13,6 +13,7 @@ public:
     const Model *model;
     Vec3f l;
     Vec3f tri[3];
+    Vec3f varying_nrm[3];
 
     PhongShader(const Model *model, Vec3f light) : model(model) {
         l = ((modelview * Vec4f(light,0)).toVec3()).normalize();
@@ -20,14 +21,15 @@ public:
 
     virtual Vec4f Vertex(const int face,const int vert) {
         Vec4f v = {model->vert(model->face(face)[vert]),1};
+        Vec3f n = model->normal(face,vert);
+        varying_nrm[vert] = (invert_transpose(modelview) * Vec4f(n, 0)).toVec3().normalize();
         tri[vert] =  (modelview * v).toVec3();
         return perspective * modelview *v;
     }
 
     virtual std::pair<bool,TGAColor> fragment(const Vec3f bar) const {
         TGAColor color = {255,255,255,255};
-        Vec3f n = (tri[1]-tri[0]) ^ (tri[2]-tri[0]);
-        n = n.normalize();//法线
+        Vec3f n = (varying_nrm[0]*bar.x + varying_nrm[1]*bar.y + varying_nrm[2]*bar.z).normalize();
         Vec3f r = (n * (n * l)*2 - l).normalize(); //反射光线
         double amb = 0.3; //环境光
         double diff = std::max(0.f,n*l);//漫反射
