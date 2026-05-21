@@ -72,14 +72,17 @@ public:
         Matrix<2,4,float> T = inverse(U) * E;
 
         Mat4 A;
-        Vec4f a0 = {T[0][0], T[0][1], T[0][2], T[0][3]};
-        Vec4f a1 = {T[1][0], T[1][1], T[1][2], T[1][3]};
-        a0.normalize();
-        a1.normalize();
-        A[0] = {a0.x, a0.y, a0.z, a0.w};
-        A[1] = {a1.x, a1.y, a1.z, a1.w};
+        Vec3f t = {T[0][0], T[0][1], T[0][2]};
+        Vec3f b = {T[1][0], T[1][1], T[1][2]};
         Vec3f a2 = varying_normal[0] * bar.x + varying_normal[1] * bar.y + varying_normal[2] * bar.z;
         a2.normalize();
+        t = t - a2 * (t * a2);
+        t.normalize();
+        b = b - a2 * (b * a2);
+        b = b - t * (b * t);
+        b.normalize();
+        A[0] = {t.x, t.y, t.z, 0};
+        A[1] = {b.x, b.y, b.z, 0};
         A[2] = {a2.x, a2.y, a2.z, 0};
         A[3] = {0, 0, 0, 1};
 
@@ -95,29 +98,96 @@ public:
 
         float shadow_diff = 1.f;
         float shadow_spec = 1.f;
-        float bias = 0.01;
+        float bias = 0.05f;
 
-        int idx_x = std::max(0, std::min(shadow_width - 1, (int)p_light.x));
-        int idx_y = std::max(0, std::min(shadow_height - 1, (int)p_light.y));
-        int shadow_idx = idx_x + idx_y * shadow_width;
-
-        if (p_light.z + bias < shadowBuffer[shadow_idx]) {
-            shadow_diff = 0.2f;
-            shadow_spec = 0.f;
+        if (p_light.x >= 0 && p_light.x < shadow_width && p_light.y >= 0 && p_light.y < shadow_height) {
+            int idx_x = (int)p_light.x;
+            int idx_y = (int)p_light.y;
+            int shadow_idx = idx_x + idx_y * shadow_width;
+            if (p_light.z + bias < shadowBuffer[shadow_idx]) {
+                shadow_diff = 0.05f;
+                shadow_spec = 0.f;
+            }
         }
 
-        double amb = 0.3; //环境光
+        double amb = 0.35; //环境光
         double diff = std::max(0.f,n*l);//漫反射
-        double spec = std::pow(std::max(0.f,r.z),40);//高光
-
+        Vec3f v_dir = -p_view.toVec3().normalize();
+        double spec = std::pow(std::max(0.f, r * v_dir), 40);
         for (int i= 0; i < 3; i++) {
-            color[i] *= std::min(1., amb + shadow_diff * .4 * diff + shadow_spec * .9 * spec);
+            color[i] *= std::min(1., amb + 2 * shadow_diff * diff + shadow_spec * 2 * spec);
         }
         return {false, color};
     }
 
 
 };
+
+void ApplySSAO(TGAImage &img, const std::vector<float> &zbuffer, int width, int height) {
+    // 准备一个随机数发生器，用来向四周撒“侦察兵”
+    std::default_random_engine generator(2026); // 固定随机种子保证渲染稳定
+    std::uniform_real_distribution<float> random_floats(0.0, 1.0);
+
+    // 1. 遍历屏幕上的每一个像素 (x, y)
+    #pragma omp parallel for // 如果你开了 OpenMP 加速，这行可以让后处理飞快
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+
+            // 拿到当前中心像素的深度值
+            float center_z = zbuffer[x + y * width];
+
+            // 如果踩到了背景（-1e10f），说明这里是虚空，直接跳过不需要遮蔽
+            if (center_z < -1e9f) continue;
+
+            float total_occlusion = 0.0f;
+            int sample_count = 16;  // 每一个像素周围撒 16 个采样点（侦察兵）
+            float radius = 15.0f;   // 采样半径（单位：像素），可以决定缝隙阴影的粗细
+
+            // 2. 开始向周围随机撒点
+            for (int i = 0; i < sample_count; i++) {
+                // 随机生成一个圆周方向的夹角
+                float angle = random_floats(generator) * 2.0f * M_PI;
+                // 随机生成一个半径距离
+                float r = random_floats(generator) * radius;
+
+                // 算出侦察兵在屏幕上的 2D 坐标
+                int sample_x = x + (int)(r * cos(angle));
+                int sample_y = y + (int)(r * sin(angle));
+
+                // 越界保护：如果侦察兵跑出了屏幕，就不算数
+                if (sample_x < 0 || sample_x >= width || sample_y < 0 || sample_y >= height) continue;
+
+                // 3. 查一查侦察兵踩到的几何体表面深度
+                float neighbor_z = zbuffer[sample_x + sample_y * width];
+
+                // 【核心几何大比拼】：
+                // 因为你的 zbuffer 越大越近。如果邻居的 neighbor_z 明显大于（更靠近相机）你的 center_z，
+                // 说明邻居是一堵“高墙”，把你围在里面了！
+                if (neighbor_z > center_z) {
+                    // 距离判定：防止隔得很远处的物体（比如前面飞过的一根手指）误遮蔽了远处的墙面
+                    float depth_diff = neighbor_z - center_z;
+                    if (depth_diff < 15.0f) { // 深度差异阈值，超过这个距离说明不是同一个转折缝隙
+                        total_occlusion += 1.0f;
+                    }
+                }
+            }
+
+            // 4. 计算最终的遮蔽因子 (0.0 代表完全黑死，1.0 代表完全开阔)
+            float occlusion_factor = total_occlusion / (float)sample_count;
+
+            // 这里的 0.65f 是遮蔽强度，值越大，夹缝处黑得越狠，画面越硬朗
+            float shadow_factor = 1.0f - occlusion_factor * 0.65f;
+
+            // 5. 物理涂黑：读取原本的像素颜色，乘以遮蔽因子
+            TGAColor color = img.get(x, y);
+            for (int c = 0; c < 3; c++) {
+                color[c] = (int)(color[c] * shadow_factor);
+            }
+            // 写回画布
+            img.set(x, y, color);
+        }
+    }
+}
 
     int main() {
 
@@ -136,10 +206,10 @@ public:
             models.emplace_back(paths[i]);
         }
 
-        int width = 800;
-        int height = 800;
+        int width = 1080;
+        int height = 1080;
 
-        Vec3f light(1,1,1);
+        Vec3f light(0.5,1,1);
         Vec3f eye(-1,0,2);
         Vec3f center(0,0,0);
         Vec3f up(0,1,0);
@@ -177,7 +247,7 @@ public:
                 Rasterize(img, face, shader);
             }
         }
-
+        ApplySSAO(img, zbufferf, width, height);
         img.write_tga_file("output.tga");
         CreateZBufferImage(zbufferf, width, height).write_tga_file("zbuffer.tga");
 

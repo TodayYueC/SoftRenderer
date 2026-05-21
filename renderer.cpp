@@ -69,7 +69,9 @@ void Rasterize(TGAImage &img, const Vec4f face[3],const IShader &shader) {
             if (heavyPoint.x < 0 || heavyPoint.y < 0 || heavyPoint.z < 0) continue;
             float z = heavyPoint * Vec3f{ndc[0].z,ndc[1].z,ndc[2].z};
             if (z <= zbufferf[x+y*img.width()]) continue;
-            auto [discard, color] = shader.fragment(heavyPoint);
+            Vec3f bar = Vec3f(heavyPoint.x/face[0].w, heavyPoint.y/face[1].w, heavyPoint.z/face[2].w);
+            bar = bar/(bar.x+bar.y+bar.z);
+            auto [discard, color] = shader.fragment(bar);
             if (discard) continue;
             zbufferf[x+y*img.width()] = z;
             img.set(x, y, color);
