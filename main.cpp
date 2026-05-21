@@ -12,8 +12,9 @@ class PhongShader : public IShader {
 public:
     const Model *model;
     Vec3f l;
-    Vec3f tri[3];
-    Vec3f varying_nrm[3];
+    Vec2f varying_uv[3];
+    Vec3f varying_normal[3];
+    Vec4f tri[3];
 
     PhongShader(const Model *model, Vec3f light) : model(model) {
         l = ((modelview * Vec4f(light,0)).toVec3()).normalize();
@@ -21,16 +22,46 @@ public:
 
     virtual Vec4f Vertex(const int face,const int vert) {
         Vec4f v = {model->vert(model->face(face)[vert]),1};
-        Vec3f n = model->normal(face,vert);
-        varying_nrm[vert] = (invert_transpose(modelview) * Vec4f(n, 0)).toVec3().normalize();
-        tri[vert] =  (modelview * v).toVec3();
+        varying_uv[vert] = model->uv(face, vert);
+        varying_normal[vert] =(invert_transpose(modelview) * Vec4f(model->normal(face, vert), 0)).toVec3().normalize();
+
+        tri[vert] = modelview * v;
+
         return perspective * modelview *v;
     }
 
     virtual std::pair<bool,TGAColor> fragment(const Vec3f bar) const {
-        TGAColor color = {255,255,255,255};
-        Vec3f n = (varying_nrm[0]*bar.x + varying_nrm[1]*bar.y + varying_nrm[2]*bar.z).normalize();
-        Vec3f r = (n * (n * l)*2 - l).normalize(); //反射光线
+
+        Matrix<2,4, float> E;
+        Vec4f e0 = tri[1]-tri[0];
+        Vec4f e1 = tri[2]-tri[0];
+        E[0] = {e0.x, e0.y, e0.z, e0.w};
+        E[1] = {e1.x, e1.y, e1.z, e1.w};
+
+        Matrix<2,2,float> U;
+        Vec2f u0 = varying_uv[1] - varying_uv[0];
+        Vec2f u1 = varying_uv[2] - varying_uv[0];
+        U[0] = {u0.x, u0.y};
+        U[1] = {u1.x, u1.y};
+
+        Matrix<2,4,float> T = inverse(U) * E;
+
+        Mat4 A;
+        Vec4f a0 = {T[0][0], T[0][1], T[0][2], T[0][3]};
+        Vec4f a1 = {T[1][0], T[1][1], T[1][2], T[1][3]};
+        a0.normalize();
+        a1.normalize();
+        A[0] = {a0.x, a0.y, a0.z, a0.w};
+        A[1] = {a1.x, a1.y, a1.z, a1.w};
+        Vec3f a2 = varying_normal[0] * bar.x + varying_normal[1] * bar.y + varying_normal[2] * bar.z;
+        a2.normalize();
+        A[2] = {a2.x, a2.y, a2.z, 0};
+        A[3] = {0, 0, 0, 1};
+
+        Vec2f uv = varying_uv[0] * bar.x + varying_uv[1] * bar.y + varying_uv[2] * bar.z;
+        TGAColor color = model->diffuse(uv);  // 替代原来的 {255,255,255,255}
+        Vec3f n = (A *Vec4f(model->normal(uv),0)).toVec3().normalize();
+        Vec3f r = (n * (n*l*2.f) - l).normalize();
         double amb = 0.3; //环境光
         double diff = std::max(0.f,n*l);//漫反射
         double spec = std::pow(std::max(0.f,r.z),40);//高光

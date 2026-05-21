@@ -12,6 +12,10 @@ extern std::vector<float> zbufferf;
 class IShader {
 public:
     virtual std::pair<bool,TGAColor> fragment(const Vec3f bar) const = 0;
+
+    static TGAColor sample2D(const TGAImage &img, const Vec2f &uvf) {
+        return img.get(uvf[0] * img.width(), uvf[1] * img.height());
+    }
 };
 
 void ModelView(const Vec3f eye, const Vec3f center, const Vec3f up);
