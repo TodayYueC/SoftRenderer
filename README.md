@@ -14,6 +14,8 @@ A software renderer built while learning from the [tinyrenderer](https://github.
 
 ## Rendering Pipeline
 
+> 📝 [SoftRenderer完整渲染管线笔记](Note/SoftRenderer完整渲染管线笔记.md)
+
 ```
 Object Space ──ModelView──▶ Eye Space ──Perspective──▶ Clip Space ──÷w──▶ NDC ──Viewport──▶ Screen Space
 ```
